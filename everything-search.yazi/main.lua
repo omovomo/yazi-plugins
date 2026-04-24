@@ -16,7 +16,7 @@ end)
 local function entry(_)
     local query, _ = ya.input {
         title = "EveryThing Search:",
-        position = { "center", w = 50 },
+        pos = { "center", w = 50 },
     }
 
     if not query or query:len() == 0 then

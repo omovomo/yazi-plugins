@@ -1,0 +1,78 @@
+# AGENTS.md
+
+## Project
+
+Monorepo of Yazi plugins for the `omovomo` GitHub account.
+Repository: https://github.com/omovomo/yazi-plugins (branch: main)
+
+## Structure
+
+```
+*.yazi/          — each directory is a separate Yazi plugin
+  main.lua       — plugin entry point
+  README.md      — plugin documentation
+  LICENSE        — MIT, Copyright (c) 2025 omovomo
+.gitignore       — allows all *.yazi/** files
+README.md        — monorepo overview with plugin table
+```
+
+## Deploy & Test
+
+Plugin source is in repo, test copy at: `C:\Portables\.config\yazi\plugins\<name>.yazi\`
+After editing, copy main.lua to test location before user verifies.
+
+## Yazi Plugin API (v26.x) — Critical Notes
+
+### Common Mistakes (learned the hard way)
+
+- **No `args()` method** on Command — only `arg()`
+- **No `ya.manager_emit()`** — use `ya.emit(action, { args })`
+- **No `ya.mgr_emit()`** — same, use `ya.emit()`
+- **No `ya.hide()`** — use `ui.hide()` (returns permit)
+- **No `position`** in ya.input — use `pos`
+- **No `write()` on Child** — use `write_all(data)` + `flush()`
+- **No `Command("pwsh"):arg("/c", ...)`** — correct is `arg("-NoProfile"):arg("-Command"):arg(...)`
+- **Scoop shims** may not launch via `Command("name")` — use `os.execute()` or `Command("cmd"):arg("/c"):arg("name")`
+- **Windows paths from external tools** — normalize with `gsub("\\", "/")` and `gsub("\r\n", "\n")`
+- **Passing user query with flags (e.g. `-r regex$`)** — split by whitespace with `gmatch("%S+")` and pass each as `arg()`, otherwise Command quotes the whole string
+
+### Command API
+
+```lua
+local child, err = Command("prog"):arg("flag"):arg("value"):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
+local output = child:wait_with_output()
+-- output.status.code, output.stdout, output.stderr
+-- child:write_all(data), child:flush()
+-- child:read(512) returns (data, event) — event: 0=stdout, 1=stderr, 2=eof
+```
+
+### Key APIs
+
+- `ya.emit(action, { args })` — send action to manager
+- `ya.input({ title, pos, value })` — returns (value, event)
+- `ya.notify({ title, content, timeout, level })` — show notification
+- `ya.confirm({ title, content, pos })` — returns boolean
+- `ya.sync(fn)` — create sync wrapper for async context
+- `ui.hide()` — hide yazi UI, returns permit
+- `cx.active.current.cwd` — current directory URL
+- `cx.active.current.hovered` — hovered file
+- `cx.active.selected` — selected files
+
+### Plugin entry
+
+```lua
+local function entry(_, job)
+    local mode = job.args[1]  -- from keymap: plugin name arg1 arg2
+end
+return { entry = entry }
+```
+
+## Code Style
+
+- No comments in code
+- `@since` annotation at top of main.lua (date format: YY.MM.DD)
+- MIT license, Copyright (c) 2025 omovomo
+
+## Commands
+
+No lint/typecheck commands configured. Test by copying to yazi plugins dir and restarting yazi.

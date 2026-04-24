@@ -22,17 +22,21 @@ Add to your `keymap.toml`:
 [[manager.prepend_keymap]]
 on   = [ "g", "e" ]
 run  = "plugin everything-search"
-desc = "Everything search in current directory"
+desc = "Everything search in current directory (fzf)"
 
 [[manager.prepend_keymap]]
 on   = [ "g", "E" ]
 run  = "plugin everything-search global"
-desc = "Everything search globally"
+desc = "Everything search globally (fzf)"
+
+[[manager.prepend_keymap]]
+on   = [ "g", "s" ]
+run  = "plugin everything-search gui"
+desc = "Everything search in GUI"
 ```
 
 ## Usage
 
-1. Press `g` then `e` to search within the current directory, or `g` then `E` for a global search
-2. Type your query and press Enter
-3. Select a result from the fzf list
-4. Yazi will navigate to or reveal the selected file
+1. Press `g` then `e` to search within the current directory with fzf, `g` then `E` for a global fzf search
+2. Press `g` then `s` to open the Everything GUI with your query
+3. Supports [Everything search syntax](https://www.voidtools.com/support/everything/search_syntax/), e.g. `pic: \bin`, `ext:exe;ini dm:today`

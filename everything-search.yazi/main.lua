@@ -25,7 +25,7 @@ local function entry(_)
 
     local parentDir = root()
     local es_search_command = string.format('es "%s" -path "%s" | fzf', query, parentDir)
-    local _permit = ya.hide()
+    local _permit = ui.hide()
 
     local child, err = Command("pwsh"):arg({ "/c", es_search_command }):stdin(Command.INHERIT):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
 

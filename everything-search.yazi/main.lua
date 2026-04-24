@@ -36,7 +36,7 @@ local function entry(_, job)
 
     local _permit = ui.hide()
 
-    local child, err = Command("pwsh"):arg({ "/c", es_search_command }):stdin(Command.INHERIT):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
+    local child, err = Command("cmd"):args({ "/c", es_search_command }):stdin(Command.INHERIT):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
 
     if not child then
         return fail("Spawn command failed with error code %s.", err)

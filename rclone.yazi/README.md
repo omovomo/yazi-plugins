@@ -1,11 +1,6 @@
 # rclone.yazi
 
-A plugin for [Yazi](https://github.com/sxyazi/yazi) that provides cloud storage operations via [rclone](https://rclone.org/).
-
-## Prerequisites
-
-- Yazi v0.3.0 or newer
-- [rclone](https://rclone.org/) (must be in `PATH`)
+Cloud storage operations via [rclone](https://rclone.org/) - copy, move, sync, bisync, delete.
 
 ## Installation
 
@@ -13,32 +8,37 @@ A plugin for [Yazi](https://github.com/sxyazi/yazi) that provides cloud storage 
 ya pkg add omovomo/yazi-plugins:rclone
 ```
 
+## Prerequisites
+
+- Yazi v25.2.13 or newer
+- [rclone](https://rclone.org/) (must be in `PATH`)
+
 ## Keybinding
 
 Add to your `keymap.toml`:
 
 ```toml
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on   = [ "g", "r", "c" ]
 run  = "plugin rclone copy"
 desc = "Rclone copy to hovered directory"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on   = [ "g", "r", "m" ]
 run  = "plugin rclone move"
 desc = "Rclone move to hovered directory"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on   = [ "g", "r", "s" ]
 run  = "plugin rclone sync"
 desc = "Rclone sync to hovered directory"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on   = [ "g", "r", "b" ]
 run  = "plugin rclone bisync"
 desc = "Rclone bisync with hovered directory"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on   = [ "g", "r", "d" ]
 run  = "plugin rclone delete"
 desc = "Rclone delete selected"
@@ -61,3 +61,7 @@ This adds a progress indicator to the status bar showing transfer speed, percent
 3. Press the keybinding for the desired operation
 4. Confirm the destination and operation in the dialog
 5. Progress is shown in the status bar during transfer
+
+## License
+
+This plugin is MIT-licensed. For more information check the [LICENSE](LICENSE) file.

@@ -3,4 +3,5 @@
 !.gitignore
 !AGENTS.md
 !README.md
+!stylua.toml
 !*.yazi/**

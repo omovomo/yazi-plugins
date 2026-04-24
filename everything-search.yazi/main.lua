@@ -13,9 +13,12 @@ local root = ya.sync(function()
     return cx.active.current.cwd
 end)
 
-local function entry(_)
+local function entry(_, job)
+    local mode = job and job.args and job.args[1] or "local"
+    local title = mode == "global" and "EveryThing Search (global):" or "EveryThing Search:"
+
     local query, _ = ya.input {
-        title = "EveryThing Search:",
+        title = title,
         pos = { "center", w = 50 },
     }
 
@@ -23,8 +26,14 @@ local function entry(_)
         return
     end
 
-    local parentDir = root()
-    local es_search_command = string.format('es "%s" -path "%s" | fzf', query, parentDir)
+    local es_search_command
+    if mode == "global" then
+        es_search_command = string.format('es "%s" | fzf', query)
+    else
+        local parentDir = root()
+        es_search_command = string.format('es -path "%s" "%s" | fzf', parentDir, query)
+    end
+
     local _permit = ui.hide()
 
     local child, err = Command("pwsh"):arg({ "/c", es_search_command }):stdin(Command.INHERIT):stdout(Command.PIPED):stderr(Command.PIPED):spawn()

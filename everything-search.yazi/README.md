@@ -22,12 +22,17 @@ Add to your `keymap.toml`:
 [[manager.prepend_keymap]]
 on   = [ "g", "e" ]
 run  = "plugin everything-search"
-desc = "Everything search (es.exe + fzf)"
+desc = "Everything search in current directory"
+
+[[manager.prepend_keymap]]
+on   = [ "g", "E" ]
+run  = "plugin everything-search global"
+desc = "Everything search globally"
 ```
 
 ## Usage
 
-1. Press `g` then `e` to open the search prompt
+1. Press `g` then `e` to search within the current directory, or `g` then `E` for a global search
 2. Type your query and press Enter
 3. Select a result from the fzf list
 4. Yazi will navigate to or reveal the selected file

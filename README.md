@@ -7,12 +7,14 @@ A collection of plugins for the [Yazi](https://github.com/sxyazi/yazi) file mana
 ## Plugins
 
 - [everything-search.yazi](everything-search.yazi/) - Search files using [Everything](https://www.voidtools.com/) with interactive [fzf](https://github.com/junegunn/fzf) selection
+- [fastcopy.yazi](fastcopy.yazi/) - High-performance file operations (copy, move, delete) via [FastCopy](https://fastcopy.jp/)
 - [rclone.yazi](rclone.yazi/) - Cloud storage operations (copy, move, sync, bisync, delete) via [rclone](https://rclone.org/)
 
 ## Installation
 
 ```sh
 ya pkg add omovomo/yazi-plugins:everything-search
+ya pkg add omovomo/yazi-plugins:fastcopy
 ya pkg add omovomo/yazi-plugins:rclone
 ```
 

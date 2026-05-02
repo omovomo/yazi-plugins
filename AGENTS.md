@@ -35,6 +35,11 @@ After editing, copy main.lua to test location before user verifies.
 - **Scoop shims** may not launch via `Command("name")` — use `os.execute()` or `Command("cmd"):arg("/c"):arg("name")`
 - **Windows paths from external tools** — normalize with `gsub("\\", "/")` and `gsub("\r\n", "\n")`
 - **Passing user query with flags (e.g. `-r regex$`)** — split by whitespace with `gmatch("%S+")` and pass each as `arg()`, otherwise Command quotes the whole string
+- **`fs.cha()` is async-only** — cannot be called inside `ya.sync()`. Use cached `file.cha.is_dir` from `cx.active.current.hovered` instead
+- **`ui.Text.LEFT` / `ui.Line.LEFT` don't exist** — alignment constants are on `ui.Align` (e.g. `ui.Align.LEFT`, `ui.Align.CENTER`)
+- **`ya.which` uses `cands`** (not `items`) — returns 1-based index or nil
+- **`cx.active.selected` is not indexable by Url** — convert to strings for key lookup: `tostring(f.url)`
+- **Plugin args use `--` separator** — `plugin fastcopy -- copy filter noexec` passes `{"copy", "filter", "noexec"}`
 
 ### Command API
 

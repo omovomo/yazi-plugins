@@ -1,6 +1,8 @@
 # rclone.yazi
 
-Cloud storage operations via [rclone](https://rclone.org/) - copy, move, sync, bisync, delete, mount.
+Mount, sync, and manage cloud storage via [rclone](https://rclone.org/) with `rclone rcd` daemon.
+
+Uses [rclone rcd](https://rclone.org/commands/rclone_rcd/) (remote control daemon) and [rclone rc](https://rclone.org/commands/rclone_rc/) (remote control API) for all operations.
 
 ## Installation
 
@@ -20,85 +22,82 @@ Add to your `keymap.toml`:
 
 ```toml
 prepend_keymap = [
-	{ on = [ "g", "r", "c" ], run = "plugin rclone copy",    desc = "Rclone: copy/move/sync/bisync" },
-	{ on = [ "g", "r", "d" ], run = "plugin rclone delete",  desc = "Rclone: delete selected" },
-	{ on = [ "g", "r", "m" ], run = "plugin rclone mount",   desc = "Rclone: mount remote" },
-	{ on = [ "g", "r", "u" ], run = "plugin rclone unmount", desc = "Rclone: unmount" },
+	{ on = [ "g", "r", "m" ], run = "plugin rclone mount",       desc = "Rclone: mount remote" },
+	{ on = [ "g", "r", "u" ], run = "plugin rclone unmount",     desc = "Rclone: unmount" },
+	{ on = [ "g", "r", "U" ], run = "plugin rclone unmountall",  desc = "Rclone: unmount all" },
+	{ on = [ "g", "r", "s" ], run = "plugin rclone status",      desc = "Rclone: mount status" },
+	{ on = [ "g", "r", "r" ], run = "plugin rclone sync",        desc = "Rclone: sync" },
+	{ on = [ "g", "r", "b" ], run = "plugin rclone bisync",      desc = "Rclone: bisync" },
 ]
 ```
 
 ## Setup
 
-Initialize the status bar widget in your `init.lua`:
+Initialize the plugin in your `init.lua`:
 
 ```lua
 require("rclone"):setup()
 ```
 
-This adds a progress indicator to the status bar showing transfer speed, percentage, and ETA.
+### Options
+
+```lua
+require("rclone"):setup({
+	url = "http://localhost:5572/",   -- rcd daemon address
+	cache_mode = "full",               -- "off", "minimal", "writes", "full"
+	unmount_on_exit = true,            -- unmount all when quitting yazi
+})
+```
+
+`cache_mode` controls the VFS cache mode used when mounting. Default is `"full"`.
+
+When `unmount_on_exit` is `true`, remap your quit key to use the plugin's `quit` action:
+
+```toml
+{ on = "q", run = "plugin rclone quit", desc = "Quit yazi" },
+```
+
+The progress indicator in the status bar shows transfer speed, percentage, and ETA during sync operations.
+
+## Architecture
+
+The plugin uses `rclone rcd` as a background daemon:
+
+- **Setup**: Start `rclone rcd` manually (e.g. `rclone rcd --rc-addr localhost:5572`). The plugin connects to it via `rclone rc`.
+- **Operations**: All actions (mount, sync, etc.) are performed via `rclone rc` commands sent to the daemon.
 
 ## Usage
-
-### Copy / Move / Sync
-
-1. **Select** files/folders to operate on
-2. Press the copy keybinding
-3. **Select mode** from the `ya.which` dialog
-4. **Edit destination** path (defaults to current directory)
-5. **Confirm** the operation in the preview dialog
-6. Progress is shown in the status bar during transfer
-
-### Delete
-
-1. **Select** files/folders (or hover a single item)
-2. Press the delete keybinding
-3. **Select mode** from the `ya.which` dialog
-4. **Confirm** deletion in the warning dialog
 
 ### Mount
 
 1. Press the mount keybinding
-2. **Select remote** from `rclone listremotes`
+2. **Select remote** from configured remotes
 3. **Enter remote path** (press Enter for root)
-4. **Enter mount point** (drive letter, e.g. `Z:`)
-5. **Select cache mode** (Full recommended)
-6. **Confirm** — rclone mount starts in a new console window
+4. **Enter mount point** (drive letter, path, or `*` for auto-assign on Windows)
+5. **Confirm** — mount is created via rc API with the configured cache mode
 
-The mount runs in a separate console window. Close that window or use the unmount command to disconnect.
+On Windows, use `*` as mount point to let the system assign the next available drive letter.
 
 ### Unmount
 
 1. Press the unmount keybinding
-2. **Select active mount** from the list (shows remote, drive letter, PID)
-3. **Confirm** — the rclone process is terminated
+2. **Select active mount** from the list
+3. **Confirm** — mount is removed via rc API
 
-## Modes
+### Status
 
-### Copy / Move / Sync modes
+Shows all active mounts via `mount/listmounts`.
 
-| Key | Mode | Description |
-|-----|------|-------------|
-| `c` | Copy | Copy files to destination |
-| `m` | Move | Move files (deletes empty source dirs) |
-| `s` | Sync | Sync source to destination |
-| `b` | BiSync | Bidirectional sync |
-| `r` | BiReSync | Bidirectional sync (resync) |
+### Sync
 
-### Delete modes
+1. **Enter source path** (defaults to current directory)
+2. **Enter destination path**
+3. **Confirm** — sync runs asynchronously via rc API
+4. Progress is shown in the status bar
 
-| Key | Mode | Description |
-|-----|------|-------------|
-| `d` | Delete | Delete selected files |
-| `w` | Delete + Rmdirs | Delete files and remove empty directories |
+### BiSync
 
-### Mount cache modes
-
-| Key | Mode | Description |
-|-----|------|-------------|
-| `f` | Full | Cache all reads and writes (recommended) |
-| `w` | Writes | Cache writes only |
-| `m` | Minimal | Minimal read-ahead caching |
-| `n` | None | No caching |
+Same as sync but performs bidirectional synchronization between two paths.
 
 ## License
 

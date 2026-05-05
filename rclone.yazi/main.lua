@@ -2,326 +2,532 @@
 
 local M = {}
 
-local COPY_CANDS = {
-	{ on = "c", desc = "Copy", cmd = "copy" },
-	{ on = "m", desc = "Move", cmd = "move", extra = { "--delete-empty-src-dirs" } },
-	{ on = "s", desc = "Sync", cmd = "sync" },
-	{ on = "b", desc = "BiSync", cmd = "bisync" },
-	{ on = "r", desc = "BiReSync", cmd = "bisync", extra = { "--resync" } },
-}
-
-local DELETE_CANDS = {
-	{ on = "d", desc = "Delete", cmd = "delete" },
-	{ on = "w", desc = "Delete + Rmdirs", cmd = "delete", extra = { "--rmdirs" } },
-}
-
-local CACHE_CANDS = {
-	{ on = "f", desc = "Full (Recommended)", cache = "full" },
-	{ on = "w", desc = "Writes", cache = "writes" },
-	{ on = "m", desc = "Minimal", cache = "minimal" },
-	{ on = "n", desc = "None", cache = "off" },
-}
+local CACHE_NAMES = { [0] = "off", [1] = "minimal", [2] = "writes", [3] = "full" }
+local CACHE_MAP = { off = 0, minimal = 1, writes = 2, full = 3 }
 
 local CAND_KEYS = "1234567890abcdefghijklmnopqrstuvwxyz"
 
-local mount_handles = {}
+local function json_decode(str)
+	local pos = 1
+	local parse_value
+
+	local function skip_ws()
+		while pos <= #str do
+			local c = str:sub(pos, pos)
+			if c == " " or c == "\t" or c == "\n" or c == "\r" then
+				pos = pos + 1
+			else
+				break
+			end
+		end
+	end
+
+	local function parse_string()
+		pos = pos + 1
+		local r = {}
+		while pos <= #str do
+			local c = str:sub(pos, pos)
+			if c == "\\" then
+				pos = pos + 1
+				local e = str:sub(pos, pos)
+				if e == "n" then
+					r[#r + 1] = "\n"
+				elseif e == "t" then
+					r[#r + 1] = "\t"
+				elseif e == "r" then
+					r[#r + 1] = "\r"
+				elseif e == '"' then
+					r[#r + 1] = '"'
+				elseif e == "\\" then
+					r[#r + 1] = "\\"
+				elseif e == "/" then
+					r[#r + 1] = "/"
+				elseif e == "u" then
+					r[#r + 1] = str:sub(pos - 1, pos + 4)
+					pos = pos + 4
+				else
+					r[#r + 1] = e
+				end
+				pos = pos + 1
+			elseif c == '"' then
+				pos = pos + 1
+				return table.concat(r)
+			else
+				r[#r + 1] = c
+				pos = pos + 1
+			end
+		end
+		return table.concat(r)
+	end
+
+	local function parse_number()
+		local s = pos
+		if str:sub(pos, pos) == "-" then pos = pos + 1 end
+		while pos <= #str and str:sub(pos, pos):match("%d") do pos = pos + 1 end
+		if pos <= #str and str:sub(pos, pos) == "." then
+			pos = pos + 1
+			while pos <= #str and str:sub(pos, pos):match("%d") do pos = pos + 1 end
+		end
+		if pos <= #str and (str:sub(pos, pos) == "e" or str:sub(pos, pos) == "E") then
+			pos = pos + 1
+			if pos <= #str and (str:sub(pos, pos) == "+" or str:sub(pos, pos) == "-") then pos = pos + 1 end
+			while pos <= #str and str:sub(pos, pos):match("%d") do pos = pos + 1 end
+		end
+		return tonumber(str:sub(s, pos - 1))
+	end
+
+	local function parse_array()
+		pos = pos + 1
+		local a = {}
+		skip_ws()
+		if str:sub(pos, pos) == "]" then pos = pos + 1; return a end
+		while true do
+			a[#a + 1] = parse_value()
+			skip_ws()
+			local c = str:sub(pos, pos)
+			if c == "]" then pos = pos + 1; return a end
+			if c == "," then pos = pos + 1 end
+		end
+	end
+
+	local function parse_object()
+		pos = pos + 1
+		local o = {}
+		skip_ws()
+		if str:sub(pos, pos) == "}" then pos = pos + 1; return o end
+		while true do
+			skip_ws()
+			local k = parse_string()
+			skip_ws()
+			pos = pos + 1
+			o[k] = parse_value()
+			skip_ws()
+			local c = str:sub(pos, pos)
+			if c == "}" then pos = pos + 1; return o end
+			if c == "," then pos = pos + 1 end
+		end
+	end
+
+	parse_value = function()
+		skip_ws()
+		local c = str:sub(pos, pos)
+		if c == "{" then
+			return parse_object()
+		elseif c == "[" then
+			return parse_array()
+		elseif c == '"' then
+			return parse_string()
+		elseif c == "t" then
+			pos = pos + 4
+			return true
+		elseif c == "f" then
+			pos = pos + 5
+			return false
+		elseif c == "n" then
+			pos = pos + 4
+			return nil
+		elseif c == "-" or c:match("%d") then
+			return parse_number()
+		end
+		return nil
+	end
+
+	skip_ws()
+	return parse_value()
+end
 
 local function fail(s, ...)
 	ya.notify({ title = "rclone", content = string.format(s, ...), timeout = 5, level = "error" })
 end
 
-local function normalize_path(path)
-	return path and path:gsub("\\", "/") or path
-end
-
-local function paths_overlap(sources, dest)
-	local dest_n = normalize_path(dest):lower():gsub("/+$", "")
-	for _, src in ipairs(sources) do
-		local src_n = normalize_path(src):lower():gsub("/+$", "")
-		if src_n == dest_n then
-			return true
-		end
-		if #dest_n > #src_n and dest_n:sub(1, #src_n) == src_n and dest_n:sub(#src_n + 1, #src_n + 1) == "/" then
-			return true
-		end
-	end
-	return false
+local function data_to_string(data)
+	if not data then return "" end
+	if type(data) == "string" then return data end
+	local s = {}
+	for _, b in ipairs(data) do s[#s + 1] = string.char(b) end
+	return table.concat(s)
 end
 
 local function make_cands(items)
-	local cands = {}
+	local c = {}
 	for i, item in ipairs(items) do
-		if i > #CAND_KEYS then
-			break
-		end
-		cands[#cands + 1] = { on = CAND_KEYS:sub(i, i), desc = item }
+		if i > #CAND_KEYS then break end
+		c[#c + 1] = { on = CAND_KEYS:sub(i, i), desc = item }
 	end
-	return cands
+	return c
 end
 
-local selected_urls = ya.sync(function()
-	local tab = cx.active
-	local urls = {}
-	for _, u in pairs(tab.selected) do
-		urls[#urls + 1] = u
-	end
-	return urls
-end)
+local function format_bytes(n)
+	if not n or n <= 0 then return "0 B" end
+	if n >= 1073741824 then return string.format("%.1f GiB", n / 1073741824)
+	elseif n >= 1048576 then return string.format("%.1f MiB", n / 1048576)
+	elseif n >= 1024 then return string.format("%.1f KiB", n / 1024)
+	else return string.format("%d B", n) end
+end
 
-local hovered_url = ya.sync(function()
-	local h = cx.active.current.hovered
-	return h and h.url
-end)
+local function format_eta(s)
+	if not s or s <= 0 then return "?" end
+	if s >= 3600 then return string.format("%dh%dm", math.floor(s / 3600), math.floor((s % 3600) / 60))
+	elseif s >= 60 then return string.format("%dm%ds", math.floor(s / 60), math.floor(s % 60))
+	else return string.format("%ds", math.floor(s)) end
+end
 
 local current_cwd = ya.sync(function()
-	return cx.active.current.cwd
+	return tostring(cx.active.current.cwd):gsub("\\", "/"):gsub("/+$", "")
 end)
 
-local set_progress = ya.sync(function(state, progress_info)
-	state.progress_info = progress_info
+local get_url = ya.sync(function(state)
+	return state.url
+end)
+
+local get_cache_mode = ya.sync(function(state)
+	return state.cache_mode
+end)
+
+local get_unmount_on_exit = ya.sync(function(state)
+	return state.unmount_on_exit
+end)
+
+local get_hovered = ya.sync(function()
+	local h = cx.active.current.hovered
+	if not h then return nil end
+	local url = tostring(h.url):gsub("\\", "/")
+	if not (url:match("%.zip$") or url:match("%.sqfs$")) then return nil end
+	return url
+end)
+
+local set_progress = ya.sync(function(state, info)
+	state.progress_info = info
 	ui.render()
 end)
 
 local get_progress = ya.sync(function(state)
-	local progress = state.progress_info
-	if not progress then
-		return ""
-	end
+	if not state.progress_info then return "" end
+	local p = state.progress_info
 	return ui.Line {
 		ui.Span(" 󰑌 "):fg("lightcyan"),
-		ui.Span(progress.speed):fg("lightgreen"),
+		ui.Span(p.speed or ""):fg("lightgreen"),
 		ui.Span(":"),
-		ui.Span(progress.percent .. "%"):fg("lightgreen"),
-		ui.Span(":"),
-		ui.Span(progress.eta):fg("lightgreen"),
+		ui.Span(p.percent or "?"):fg("lightgreen"),
+		ui.Span("%:"),
+		ui.Span(p.eta or "?"):fg("lightgreen"),
 		ui.Span(" "),
 	}
 end)
 
-function M.setup(state)
+function M.setup(state, opts)
 	state.progress_info = nil
+	opts = opts or {}
+	state.url = opts.url or "http://localhost:5572/"
+	local cm = opts.cache_mode or "full"
+	state.cache_mode = type(cm) == "number" and cm or CACHE_MAP[cm] or 3
+	state.unmount_on_exit = opts.unmount_on_exit or false
 	Status:children_add(get_progress, 1000, Status.RIGHT)
 end
 
-local function find_common_path(urls)
-	if #urls == 0 then
-		return nil
-	end
-	if #urls == 1 then
-		return urls[1]
-	end
-	local common_url = urls[1]
-	for i = 2, #urls do
-		local current_url = urls[i]
-		while common_url ~= nil and not current_url:starts_with(common_url) do
-			common_url = common_url.parent
-		end
-		if common_url == nil then
-			return nil
+local function rc_call(cmd, params)
+	local url = get_url()
+	local c = Command("rclone"):arg("rc"):arg("--url"):arg(url):arg(cmd)
+	if params then
+		local keys = {}
+		for k in pairs(params) do keys[#keys + 1] = k end
+		table.sort(keys)
+		for _, k in ipairs(keys) do
+			c = c:arg(k .. "=" .. tostring(params[k]))
 		end
 	end
-	return common_url
-end
+	ya.dbg("rclone rc", "--url", url, cmd)
+	local child, err = c:stdout(Command.PIPED):stderr(Command.PIPED):spawn()
+	if not child then return nil, "spawn: " .. (err or "") end
 
-local function data_to_string(data)
-	if type(data) == "string" then
-		return data
-	end
-	local str = ""
-	for _, b in ipairs(data) do
-		str = str .. string.char(b)
-	end
-	return str
-end
-
-local function extract_progress(data, msgs)
-	local str = data_to_string(data)
-
-	local msg_pattern = "%d%d%d%d/%d%d/%d%d %d%d:%d%d:%d%d [%a ]+: [^\n]+\n"
-	for match in string.gmatch(str, msg_pattern) do
-		table.insert(msgs, match)
-	end
-
-	local pattern = "([%d.]+%s*[KMGTP]?i?B)%s*/%s*([%d.]+%s*[KMGTP]?i?B),%s*(%d+)%%,%s*([%d.]+%s*[KMGTP]?i?B/s),%s*ETA%s*([^%s]*)"
-	local copied, total, percent, speed, eta = string.match(str, pattern)
-	if copied and total and percent and speed and eta then
-		return true, {
-			copied = copied,
-			total = total,
-			percent = percent,
-			speed = speed,
-			eta = eta,
-		}
-	end
-	return false, str
-end
-
-local function get_listremotes()
-	local child = Command("rclone"):arg("listremotes"):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
-	if not child then
-		return nil
-	end
 	local chunks = {}
 	while true do
-		local data, event = child:read(4096)
-		if event == 2 then
-			break
-		end
-		if event == 0 then
-			chunks[#chunks + 1] = data
-		end
+		local data, event = child:read(8192)
+		if event == 2 then break end
+		if event == 0 then chunks[#chunks + 1] = data_to_string(data) end
 	end
-	child:wait()
-	local stdout = ""
-	for _, chunk in ipairs(chunks) do
-		stdout = stdout .. data_to_string(chunk)
+
+	local output = child:wait_with_output()
+	local code = (output and output.status and output.status.code) or -1
+	local stdout = table.concat(chunks):gsub("\r\n", "\n"):match("^%s*(.-)%s*$") or ""
+
+	if code ~= 0 then
+		local stderr = ""
+		if output and output.stderr then stderr = data_to_string(output.stderr):gsub("\r\n", "\n") end
+		local msg = stderr ~= "" and stderr or stdout
+		return nil, msg ~= "" and msg or ("exit " .. code)
 	end
-	local remotes = {}
-	for remote in stdout:gmatch("(%S+)") do
-		remotes[#remotes + 1] = remote:gsub(":$", "")
-	end
-	return remotes
+
+	if stdout == "" or stdout == "{}" then return {} end
+	local ok, result = pcall(json_decode, stdout)
+	if not ok then return nil, "json: " .. tostring(result) end
+	return result
 end
 
 local function do_mount()
-	local remotes = get_listremotes()
-	if not remotes or #remotes == 0 then
-		return fail("No rclone remotes configured. Run 'rclone config' first.")
+	local result = rc_call("config/listremotes")
+	if not result then return fail("Failed to list remotes") end
+	local remotes = result.remotes or {}
+
+	local names = {}
+	for _, r in ipairs(remotes) do
+		names[#names + 1] = r:gsub(":$", "")
 	end
 
-	local cands = make_cands(remotes)
+	local hovered = get_hovered()
+	if hovered then
+		local short = hovered:match("([^/]+)$")
+		names[#names + 1] = ":archive:" .. hovered
+		short_names = short_names or {}
+		short_names[#names] = "archive:" .. short
+	end
+
+	if #names == 0 then return fail("No remotes configured") end
+
+	local cands = {}
+	for i, n in ipairs(names) do
+		if i > #CAND_KEYS then break end
+		local is_last_archive = (i == #names and short_names and short_names[i])
+		cands[#cands + 1] = {
+			on = is_last_archive and "<Enter>" or CAND_KEYS:sub(i, i),
+			desc = (short_names and short_names[i]) or n,
+		}
+	end
 	local idx = ya.which({ cands = cands })
-	if not idx then
+	if not idx then return end
+	local remote_name = names[idx]
+	local is_archive = remote_name:sub(1, 9) == ":archive:"
+	local remote_path
+
+	if is_archive then
+		remote_path = remote_name
+		local file_path = remote_path:sub(10)
+		local mount_point = file_path:gsub("%.[^.]+$", ".archive")
+		local cache_mode = get_cache_mode()
+
+		local mounts = rc_call("mount/listmounts")
+		if mounts then
+			for _, m in ipairs(mounts.mountPoints or {}) do
+				local mp = type(m) == "table" and (m.MountPoint or m.mountPoint) or tostring(m)
+				if mp:gsub("\\", "/") == mount_point:gsub("\\", "/") then
+					ya.emit("cd", { mount_point:gsub("\\", "/") })
+					return
+				end
+			end
+		end
+
+		local mount_result, err = rc_call("mount/mount", {
+			fs = remote_path,
+			mountPoint = mount_point,
+			vfsOpt = '{"CacheMode":' .. cache_mode .. '}',
+		})
+		if not mount_result then
+			return fail("Mount failed: %s", err or "unknown")
+		end
+
+		ya.emit("cd", { mount_point:gsub("\\", "/") })
 		return
 	end
-	local remote_name = remotes[idx]
 
-	local subpath, se = ya.input({
+	local rp_input, rp_event = ya.input({
 		title = "Remote path (Enter for root):",
-		value = "",
+		value = remote_name .. ":",
 		pos = { "center", w = 80 },
 	})
-	if se ~= 1 then
-		return
-	end
-	local remote_path = remote_name .. ":" .. subpath
+	if rp_event ~= 1 then return end
+	remote_path = rp_input
 
 	local mount_point, me = ya.input({
-		title = "Mount point (drive letter or path):",
+		title = "Mount point (drive letter, path, or * for auto):",
 		value = "Z:",
 		pos = { "center", w = 80 },
 	})
-	if me ~= 1 then
-		return
-	end
+	if me ~= 1 then return end
 
-	local ci = ya.which({ cands = CACHE_CANDS })
-	if not ci then
-		return
-	end
-	local cache = CACHE_CANDS[ci].cache
+	local cache_mode = get_cache_mode()
 
 	local ok = ya.confirm({
 		pos = { "center", w = 80, h = 8 },
 		title = ui.Line("Rclone Mount"):bold(),
 		body = ui.Text({
-			ui.Line({
-				ui.Span("Remote: "):fg("lightgreen"),
-				ui.Span(remote_path):fg("cyan"),
-			}),
-			ui.Line({
-				ui.Span("Mount:   "):fg("lightgreen"),
-				ui.Span(mount_point):fg("cyan"),
-			}),
-			ui.Line({
-				ui.Span("Cache:   "):fg("lightgreen"),
-				ui.Span(cache):fg("cyan"),
-			}),
+			ui.Line({ ui.Span("Remote: "):fg("lightgreen"), ui.Span(remote_path):fg("cyan") }),
+			ui.Line({ ui.Span("Mount:   "):fg("lightgreen"), ui.Span(mount_point):fg("cyan") }),
+			ui.Line({ ui.Span("Cache:   "):fg("lightgreen"), ui.Span(CACHE_NAMES[cache_mode] or tostring(cache_mode)):fg("cyan") }),
 		}),
 	})
-	if not ok then
-		return
+	if not ok then return end
+
+	local mount_result, err = rc_call("mount/mount", {
+		fs = remote_path,
+		mountPoint = mount_point,
+		vfsOpt = '{"CacheMode":' .. cache_mode .. '}',
+	})
+	if not mount_result then
+		return fail("Mount failed: %s", err or "unknown")
 	end
 
-	local cmd_str = string.format("rclone mount %s %s --vfs-cache-mode %s --volname %s --no-console", remote_path, mount_point, cache, remote_name)
-
-	local child, err = Command("rclone")
-		:arg("mount"):arg(remote_path):arg(mount_point)
-		:arg("--vfs-cache-mode"):arg(cache)
-		:arg("--volname"):arg(remote_name)
-		:arg("--no-console")
-		:stdin(Command.NULL)
-		:stdout(Command.NULL)
-		:stderr(Command.NULL)
-		:spawn()
-	if not child then
-		return fail("Mount failed: %s", err)
-	end
-
-	mount_handles[remote_path] = {
-		child = child,
-		remote = remote_path,
-		drive = mount_point,
-	}
-
+	local actual = (type(mount_result) == "table" and mount_result.mountPoint) or mount_point
 	ya.notify({
 		title = "Rclone Mount",
-		content = cmd_str,
-		timeout = 10,
+		content = string.format("%s -> %s", remote_path, actual),
+		timeout = 5,
 		level = "info",
 	})
+
+	if actual == "*" then actual = mount_point end
+	ya.emit("cd", { actual:gsub("\\", "/") })
 end
 
 local function do_unmount()
-	local mounts_info = {}
-	for _, m in pairs(mount_handles) do
-		mounts_info[#mounts_info + 1] = { remote = m.remote, drive = m.drive }
-	end
-
-	if #mounts_info == 0 then
-		return fail("No active mounts")
-	end
+	local result = rc_call("mount/listmounts")
+	if not result then return fail("Failed to list mounts") end
+	local mounts = result.mountPoints or {}
+	if #mounts == 0 then return fail("No active mounts") end
 
 	local descs = {}
-	for _, m in ipairs(mounts_info) do
-		descs[#descs + 1] = string.format("%s -> %s", m.remote, m.drive)
+	local mps = {}
+	for i, m in ipairs(mounts) do
+		local fs, mp
+		if type(m) == "table" then
+			fs = m.Fs or m.fs or "?"
+			mp = m.MountPoint or m.mountPoint or "?"
+		else
+			fs = "?"
+			mp = tostring(m)
+		end
+		descs[#descs + 1] = string.format("%s -> %s", fs, mp)
+		mps[i] = mp
 	end
 
 	local cands = make_cands(descs)
 	local idx = ya.which({ cands = cands })
-	if not idx then
-		return
-	end
-	local selected = mounts_info[idx]
+	if not idx then return end
 
 	local ok = ya.confirm({
 		pos = { "center", w = 80, h = 6 },
 		title = ui.Line("Rclone Unmount"):bold(),
 		body = ui.Text({
-			ui.Line({
-				ui.Span("Unmount "):fg("yellow"),
-				ui.Span(selected.remote):fg("cyan"),
-				ui.Span(" -> "):fg("yellow"),
-				ui.Span(selected.drive):fg("cyan"),
-			}),
+			ui.Line({ ui.Span("Unmount "):fg("yellow"), ui.Span(descs[idx]):fg("cyan") }),
 		}),
 	})
-	if not ok then
-		return
-	end
+	if not ok then return end
 
-	local handle = mount_handles[selected.remote]
-	if handle and handle.child then
-		handle.child:start_kill()
-		mount_handles[selected.remote] = nil
-	end
-
+	local _, err = rc_call("mount/unmount", { mountPoint = mps[idx] })
+	if err then return fail("Unmount failed: %s", err) end
 	ya.notify({
 		title = "Rclone Unmount",
-		content = string.format("Unmounted %s -> %s", selected.remote, selected.drive),
+		content = string.format("Unmounted %s", mps[idx]),
 		timeout = 3,
 		level = "info",
 	})
+end
+
+local function do_unmountall()
+	local ok = ya.confirm({
+		pos = { "center", w = 60, h = 5 },
+		title = ui.Line("Unmount All"):bold(),
+		body = ui.Text({ ui.Line("Unmount all active mounts?"):fg("yellow") }),
+	})
+	if not ok then return end
+	local _, err = rc_call("mount/unmountall")
+	if err then return fail("Unmount all failed: %s", err) end
+	ya.notify({ title = "Rclone", content = "All mounts unmounted", timeout = 3, level = "info" })
+end
+
+local function do_status()
+	local result = rc_call("mount/listmounts")
+	if not result then return fail("Failed to get status") end
+	local mounts = result.mountPoints or {}
+	if #mounts == 0 then
+		ya.notify({ title = "Rclone Status", content = "No active mounts", timeout = 3, level = "info" })
+		return
+	end
+	local lines = {}
+	for _, m in ipairs(mounts) do
+		if type(m) == "table" then
+			lines[#lines + 1] = string.format("%s -> %s", m.Fs or m.fs or "?", m.MountPoint or m.mountPoint or "?")
+		else
+			lines[#lines + 1] = tostring(m)
+		end
+	end
+	ya.notify({ title = "Rclone Mounts", content = table.concat(lines, "\n"), timeout = 10, level = "info" })
+end
+
+local function do_sync(bisync)
+	local title = bisync and "BiSync" or "Sync"
+	local src_label = bisync and "path1" or "srcFs"
+	local dst_label = bisync and "path2" or "dstFs"
+
+	local cwd = current_cwd()
+	local src, se = ya.input({
+		title = title .. " - " .. src_label .. ":",
+		value = cwd,
+		pos = { "center", w = 80 },
+	})
+	if se ~= 1 then return end
+
+	local dst, de = ya.input({
+		title = title .. " - " .. dst_label .. ":",
+		pos = { "center", w = 80 },
+	})
+	if de ~= 1 then return end
+
+	local cmd = bisync and "sync/bisync" or "sync/sync"
+	local params = {}
+	if bisync then
+		params.path1 = src
+		params.path2 = dst
+	else
+		params.srcFs = src
+		params.dstFs = dst
+	end
+	params._async = "true"
+
+	local ok = ya.confirm({
+		pos = { "center", w = 80, h = 6 },
+		title = ui.Line("Rclone " .. title):bold(),
+		body = ui.Text({
+			ui.Line({ ui.Span(src_label .. ": "):fg("lightgreen"), ui.Span(src):fg("cyan") }),
+			ui.Line({ ui.Span(dst_label .. ": "):fg("lightgreen"), ui.Span(dst):fg("cyan") }),
+		}),
+	})
+	if not ok then return end
+
+	local result, err = rc_call(cmd, params)
+	if not result then return fail("%s failed: %s", title, err or "unknown") end
+
+	local jobid = result.jobid
+	if not jobid then return fail("No jobid returned") end
+
+	while true do
+		local status = rc_call("job/status", { jobid = jobid })
+		if not status or status.finished then break end
+
+		local stats = rc_call("core/stats", { group = "job/" .. jobid })
+		if stats then
+			local progress = {}
+			if stats.speed and stats.speed > 0 then
+				progress.speed = format_bytes(stats.speed) .. "/s"
+			end
+			if stats.bytes and stats.totalBytes and stats.totalBytes > 0 then
+				progress.percent = string.format("%.0f", stats.bytes / stats.totalBytes * 100)
+			end
+			if stats.eta and stats.eta > 0 then
+				progress.eta = format_eta(stats.eta)
+			end
+			set_progress(progress)
+		end
+	end
+
+	set_progress(nil)
+
+	local final = rc_call("job/status", { jobid = jobid })
+	if final and final.success then
+		ya.notify({ title = "Rclone " .. title, content = "Completed", timeout = 3, level = "info" })
+	else
+		local msg = (final and final.error) or "Unknown error"
+		fail("%s failed: %s", title, msg)
+	end
 end
 
 function M.entry(st, job)
@@ -332,181 +538,19 @@ function M.entry(st, job)
 		return do_mount()
 	elseif act == "unmount" then
 		return do_unmount()
-	end
-
-	local cands
-	if act == "copy" or act == "move" or act == "sync" or act == "bisync" or act == "biresync" then
-		cands = COPY_CANDS
-	elseif act == "delete" then
-		cands = DELETE_CANDS
+	elseif act == "unmountall" then
+		return do_unmountall()
+	elseif act == "status" then
+		return do_status()
+	elseif act == "sync" then
+		return do_sync(false)
+	elseif act == "bisync" then
+		return do_sync(true)
+	elseif act == "quit" then
+		if get_unmount_on_exit() then rc_call("mount/unmountall") end
+		ya.emit("quit", {})
 	else
 		return fail("Unknown action: %s", act)
-	end
-
-	local idx = ya.which({ cands = cands })
-	if not idx then
-		return
-	end
-	local mode = cands[idx]
-	if not mode then
-		return
-	end
-
-	local urls = selected_urls()
-	if #urls == 0 then
-		if act == "delete" then
-			local h = hovered_url()
-			if h then
-				urls = { h }
-			end
-		end
-		if #urls == 0 then
-			return fail("No files selected")
-		end
-	end
-
-	local is_dir_map = {}
-	for _, u in ipairs(urls) do
-		local cha = fs.cha(u)
-		is_dir_map[tostring(u)] = cha and cha.is_dir or false
-	end
-
-	local common_path = find_common_path(urls)
-	if not common_path then
-		return fail("Failed to determine common path")
-	end
-
-	if #urls == 1 then
-		common_path = urls[1].parent
-	end
-
-	local dest = nil
-	if act ~= "delete" then
-		dest = current_cwd()
-
-		local dest_str = normalize_path(tostring(dest))
-		local dest_input, event = ya.input({
-			title = "Destination:",
-			value = dest_str,
-			pos = { "center", w = 80 },
-		})
-		if event ~= 1 then
-			return
-		end
-		dest_str = dest_input
-
-		local src_strs = {}
-		for _, u in ipairs(urls) do
-			src_strs[#src_strs + 1] = tostring(u)
-		end
-		if paths_overlap(src_strs, dest_str) then
-			return fail("Destination overlaps with source")
-		end
-
-		dest = Url(dest_str:gsub("/+$", ""))
-	end
-
-	if act == "delete" then
-		local lines = {}
-		for _, u in ipairs(urls) do
-			lines[#lines + 1] = ui.Line("  " .. normalize_path(tostring(u))):align(ui.Align.LEFT)
-		end
-		local ch = math.min(#urls + 4, 30)
-		local ok = ya.confirm({
-			pos = { "center", w = 80, h = ch },
-			title = ui.Line("Rclone Delete - Files will be permanently deleted!"):fg("red"):bold(),
-			body = ui.Text(lines),
-		})
-		if not ok then
-			return
-		end
-	end
-
-	local include_flags = {}
-	local preview_lines = {}
-	table.insert(preview_lines, ui.Line({
-		ui.Span("Source: "):fg("lightgreen"),
-		ui.Span(normalize_path(tostring(common_path))):fg("cyan"),
-	}):align(ui.Align.LEFT))
-	table.insert(preview_lines, "")
-	for _, u in ipairs(urls) do
-		local relative = u:strip_prefix(common_path)
-		local path_str = normalize_path(tostring(relative))
-		local is_dir = is_dir_map[tostring(u)]
-		table.insert(preview_lines, ui.Line("    " .. path_str .. (is_dir and "/**" or "")):align(ui.Align.LEFT))
-		table.insert(include_flags, "--include")
-		table.insert(include_flags, path_str .. (is_dir and "/**" or ""))
-	end
-	table.insert(preview_lines, "")
-	if dest then
-		table.insert(preview_lines, ui.Line({
-			ui.Span("Destination: "):fg("lightgreen"),
-			ui.Span(normalize_path(tostring(dest))):fg("cyan"),
-		}):align(ui.Align.LEFT))
-	end
-
-	local ok = ya.confirm({
-		pos = { "center", w = 80, h = math.min(#preview_lines + 4, 30) },
-		title = ui.Line("Rclone " .. mode.desc):bold(),
-		body = ui.Text(preview_lines),
-	})
-	if not ok then
-		return
-	end
-
-	ya.emit("escape", { select = true })
-
-	local rc_args = { mode.cmd, normalize_path(tostring(common_path)) }
-	if dest then
-		rc_args[#rc_args + 1] = normalize_path(tostring(dest))
-	end
-	for _, flag in ipairs(mode.extra or {}) do
-		rc_args[#rc_args + 1] = flag
-	end
-	for _, flag in ipairs(include_flags) do
-		rc_args[#rc_args + 1] = flag
-	end
-	rc_args[#rc_args + 1] = "--progress"
-	rc_args[#rc_args + 1] = "--stats-one-line"
-	rc_args[#rc_args + 1] = "--stats"
-	rc_args[#rc_args + 1] = "1s"
-
-	local child, err = Command("rclone"):arg(rc_args):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
-	if not child then
-		return fail("Failed to execute rclone: %s", err)
-	end
-
-	local messages = {}
-	while true do
-		local line, event = child:read(512)
-		if event == 2 then
-			break
-		end
-		local result, out = extract_progress(line, messages)
-		if result then
-			set_progress(out)
-		end
-	end
-
-	child:wait()
-	set_progress(nil)
-
-	if #messages > 0 then
-		local content = table.concat(messages, "\n")
-		ya.notify({
-			title = "Rclone operation completed",
-			content = content .. "\nNote: Messages copied to clipboard.",
-			timeout = 10,
-			level = "warn",
-		})
-		ya.clipboard(content)
-	else
-		ya.notify({
-			title = "Rclone " .. mode.desc,
-			content = mode.desc .. " operation completed",
-			timeout = 1,
-			level = "info",
-		})
 	end
 end
 

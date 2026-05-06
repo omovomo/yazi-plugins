@@ -19,27 +19,21 @@ ya pkg add omovomo/yazi-plugins:everything-search
 Add to your `keymap.toml`:
 
 ```toml
-[[mgr.prepend_keymap]]
-on   = [ "g", "e" ]
-run  = "plugin everything-search"
-desc = "Everything search in current directory (fzf)"
-
-[[mgr.prepend_keymap]]
-on   = [ "g", "E" ]
-run  = "plugin everything-search global"
-desc = "Everything search globally (fzf)"
-
-[[mgr.prepend_keymap]]
-on   = [ "g", "s" ]
-run  = "plugin everything-search gui"
-desc = "Everything search in GUI"
+prepend_keymap = [
+	{ on = "<C-f>",   run = "plugin everything-search",       desc = "Everything search from CD" },
+	{ on = "<C-а>",   run = "plugin everything-search",       desc = "Everything search from CD (ru/ukr)" },
+	{ on = "<A-f>",   run = "plugin everything-search global", desc = "Everything search global" },
+	{ on = "<A-а>",   run = "plugin everything-search global", desc = "Everything search global (ru/ukr)" },
+	{ on = "<C-A-f>", run = "plugin everything-search gui",    desc = "Everything search GUI" },
+	{ on = "<C-A-а>", run = "plugin everything-search gui",    desc = "Everything search GUI (ru/ukr)" },
+]
 ```
 
 ## Usage
 
-- `g` then `e` - search within the current directory with fzf
-- `g` then `E` - global search with fzf
-- `g` then `s` - open the Everything GUI with your query
+- `Ctrl+F` — search within the current directory with fzf
+- `Alt+F` — global search with fzf
+- `Ctrl+Alt+F` — open the Everything GUI with your query
 
 Supports [Everything search syntax](https://www.voidtools.com/support/everything/search_syntax/), e.g. `pic: \bin`, `ext:exe;ini dm:today`.
 

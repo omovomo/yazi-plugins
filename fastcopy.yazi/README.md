@@ -19,18 +19,18 @@ Add to your `keymap.toml`:
 
 ```toml
 prepend_keymap = [
-	{ on = "<F5>",     run = "plugin fastcopy -- copy",              desc = "FastCopy: copy selected to hovered" },
-	{ on = "<F6>",     run = "plugin fastcopy -- move",              desc = "FastCopy: move selected to hovered" },
-	{ on = "<F8>",     run = "plugin fastcopy -- delete",            desc = "FastCopy: delete selected" },
-	{ on = "<S-F5>",   run = "plugin fastcopy -- copy noexec",       desc = "FastCopy: copy preview (no exec)" },
-	{ on = "<S-F6>",   run = "plugin fastcopy -- move noexec",       desc = "FastCopy: move preview (no exec)" },
-	{ on = "<S-F8>",   run = "plugin fastcopy -- delete noexec",     desc = "FastCopy: delete preview (no exec)" },
-	{ on = "<C-F5>",   run = "plugin fastcopy -- copy filter",       desc = "FastCopy: copy with filter" },
-	{ on = "<C-F6>",   run = "plugin fastcopy -- move filter",       desc = "FastCopy: move with filter" },
-	{ on = "<C-F8>",   run = "plugin fastcopy -- delete filter",     desc = "FastCopy: delete with filter" },
-	{ on = "<C-S-F5>", run = "plugin fastcopy -- copy filter noexec",desc = "FastCopy: copy with filter (no exec)" },
-	{ on = "<C-S-F6>", run = "plugin fastcopy -- move filter noexec",desc = "FastCopy: move with filter (no exec)" },
-	{ on = "<C-S-F8>", run = "plugin fastcopy -- delete filter noexec",desc = "FastCopy: delete with filter (no exec)" },
+	{ on = "<F5>",     run = "plugin fastcopy copy",                   desc = "FastCopy: copy selected to hovered" },
+	{ on = "<F6>",     run = "plugin fastcopy move",                   desc = "FastCopy: move selected to hovered" },
+	{ on = "<F8>",     run = "plugin fastcopy delete",                 desc = "FastCopy: delete selected" },
+	{ on = "<C-F5>",   run = "plugin fastcopy -- copy filter",         desc = "FastCopy: copy preview (filter)" },
+	{ on = "<C-F6>",   run = "plugin fastcopy -- move filter",         desc = "FastCopy: move preview (filter)" },
+	{ on = "<C-F8>",   run = "plugin fastcopy -- delete filter",       desc = "FastCopy: delete preview (filter)" },
+	{ on = "<S-F5>",   run = "plugin fastcopy -- copy noexec",         desc = "FastCopy: copy preview (no exec)" },
+	{ on = "<S-F6>",   run = "plugin fastcopy -- move noexec",         desc = "FastCopy: move preview (no exec)" },
+	{ on = "<S-F8>",   run = "plugin fastcopy -- delete noexec",       desc = "FastCopy: delete preview (no exec)" },
+	{ on = "<C-S-F5>", run = "plugin fastcopy -- copy filter noexec",  desc = "FastCopy: copy preview (filter and no exec)" },
+	{ on = "<C-S-F6>", run = "plugin fastcopy -- move filter noexec",  desc = "FastCopy: move preview (filter and no exec)" },
+	{ on = "<C-S-F8>", run = "plugin fastcopy -- delete filter noexec",desc = "FastCopy: delete preview (filter and no exec)" },
 ]
 ```
 

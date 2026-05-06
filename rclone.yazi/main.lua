@@ -534,7 +534,29 @@ function M.entry(st, job)
 	job = type(job) == "string" and { args = { job } } or job
 	local act = job.args[1]
 
-	if act == "mount" then
+	if act == "menu" then
+		local cands = {
+			{ on = "1", desc = "Mount remote" },
+			{ on = "2", desc = "Unmount" },
+			{ on = "3", desc = "Unmount all" },
+			{ on = "4", desc = "Status" },
+		}
+		local idx = ya.which({ cands = cands })
+		if not idx then return end
+		if idx == 1 then return do_mount()
+		elseif idx == 2 then return do_unmount()
+		elseif idx == 3 then return do_unmountall()
+		elseif idx == 4 then return do_status() end
+	elseif act == "sync_menu" then
+		local cands = {
+			{ on = "1", desc = "Sync" },
+			{ on = "2", desc = "BiSync" },
+		}
+		local idx = ya.which({ cands = cands })
+		if not idx then return end
+		if idx == 1 then return do_sync(false)
+		elseif idx == 2 then return do_sync(true) end
+	elseif act == "mount" then
 		return do_mount()
 	elseif act == "unmount" then
 		return do_unmount()

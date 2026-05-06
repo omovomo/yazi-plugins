@@ -22,14 +22,29 @@ Add to your `keymap.toml`:
 
 ```toml
 prepend_keymap = [
-	{ on = [ "g", "r", "m" ], run = "plugin rclone mount",       desc = "Rclone: mount remote" },
-	{ on = [ "g", "r", "u" ], run = "plugin rclone unmount",     desc = "Rclone: unmount" },
-	{ on = [ "g", "r", "U" ], run = "plugin rclone unmountall",  desc = "Rclone: unmount all" },
-	{ on = [ "g", "r", "s" ], run = "plugin rclone status",      desc = "Rclone: mount status" },
-	{ on = [ "g", "r", "r" ], run = "plugin rclone sync",        desc = "Rclone: sync" },
-	{ on = [ "g", "r", "b" ], run = "plugin rclone bisync",      desc = "Rclone: bisync" },
+	{ on = "<F9>", run = "plugin rclone menu",       desc = "Rclone: mount/manage" },
+	{ on = "<F7>", run = "plugin rclone sync_menu",   desc = "Rclone: sync/bisync" },
+	{ on = "q",    run = "plugin rclone quit",        desc = "Rclone: Quit yazi with unmount all" },
 ]
 ```
+
+Press `<F9>` to open the rclone menu, then select an action by number (layout-independent):
+
+| Key | Action |
+|-----|--------|
+| `1` | Mount remote |
+| `2` | Unmount |
+| `3` | Unmount all |
+| `4` | Status |
+
+Press `<F7>` for sync operations:
+
+| Key | Action |
+|-----|--------|
+| `1` | Sync |
+| `2` | BiSync |
+
+Individual actions can also be bound directly: `plugin rclone mount`, `plugin rclone unmount`, `plugin rclone unmountall`, `plugin rclone status`, `plugin rclone sync`, `plugin rclone bisync`.
 
 ## Setup
 
@@ -51,11 +66,7 @@ require("rclone"):setup({
 
 `cache_mode` controls the VFS cache mode used when mounting. Default is `"full"`.
 
-When `unmount_on_exit` is `true`, remap your quit key to use the plugin's `quit` action:
-
-```toml
-{ on = "q", run = "plugin rclone quit", desc = "Quit yazi" },
-```
+When `unmount_on_exit` is `true`, the `q` keybinding above replaces the default quit action to unmount all remotes before exiting.
 
 The progress indicator in the status bar shows transfer speed, percentage, and ETA during sync operations.
 

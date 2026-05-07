@@ -39,6 +39,9 @@ After editing, copy main.lua to test location before user verifies.
 - **`ui.Text.LEFT` / `ui.Line.LEFT` don't exist** — alignment constants are on `ui.Align` (e.g. `ui.Align.LEFT`, `ui.Align.CENTER`)
 - **`ya.which` uses `cands`** (not `items`) — returns 1-based index or nil
 - **`cx.active.selected` is not indexable by Url** — convert to strings for key lookup: `tostring(f.url)`
+- **`os.time()` not available** in Yazi sandbox — avoid it, use `duration` from rclone API or other alternatives
+- **`ya.sleep(n)`** — async sleep for n seconds, available in plugin async context
+- **Lua locals must be declared before use** — forward references don't work; define helpers before functions that call them
 - **Plugin args use `--` separator** — `plugin fastcopy -- copy filter noexec` passes `{"copy", "filter", "noexec"}`
 
 ### Command API

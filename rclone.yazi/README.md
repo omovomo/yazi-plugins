@@ -23,7 +23,7 @@ Add to your `keymap.toml`:
 ```toml
 prepend_keymap = [
 	{ on = "<F9>", run = "plugin rclone menu",       desc = "Rclone: mount/manage" },
-	{ on = "<F7>", run = "plugin rclone sync_menu",   desc = "Rclone: sync/bisync" },
+	{ on = "<F7>", run = "plugin rclone sync_menu",   desc = "Rclone: sync/bisync/cancel" },
 	{ on = "q",    run = "plugin rclone quit",        desc = "Rclone: Quit yazi with unmount all" },
 ]
 ```
@@ -43,8 +43,9 @@ Press `<F7>` for sync operations:
 |-----|--------|
 | `1` | Sync |
 | `2` | BiSync |
+| `3` | Cancel job |
 
-Individual actions can also be bound directly: `plugin rclone mount`, `plugin rclone unmount`, `plugin rclone unmountall`, `plugin rclone status`, `plugin rclone sync`, `plugin rclone bisync`.
+Individual actions can also be bound directly: `plugin rclone mount`, `plugin rclone unmount`, `plugin rclone unmountall`, `plugin rclone status`, `plugin rclone sync`, `plugin rclone bisync`, `plugin rclone cancel`.
 
 ## Setup
 
@@ -68,7 +69,17 @@ require("rclone"):setup({
 
 When `unmount_on_exit` is `true`, the `q` keybinding above replaces the default quit action to unmount all remotes before exiting.
 
-The progress indicator in the status bar shows transfer speed, percentage, and ETA during sync operations.
+## Progress Bar
+
+During sync operations, a progress bar is shown in the status bar. Multiple concurrent sync jobs are supported:
+
+| Jobs | Display |
+|------|---------|
+| 1    | ` 󰑌 ████████░░ 80% 1.5MiB/s 2m ` |
+| 2    | ` 󰑌 ████░░ 1.5MiB/s 2m │ ██████ 500KiB/s 5m ` |
+| 3+   | ` 󰑌 ████ 2m │ ██░░ 5m │ ████ 1m ` |
+
+Jobs are separated by `│`. The bar width and displayed info adapt to the number of active jobs.
 
 ## Architecture
 
@@ -99,16 +110,18 @@ On Windows, use `*` as mount point to let the system assign the next available d
 
 Shows all active mounts via `mount/listmounts`.
 
-### Sync
+### Sync / BiSync
 
-1. **Enter source path** (defaults to current directory)
-2. **Enter destination path**
+1. **Select source** — choose a remote or local path from the list, then edit in the input field
+2. **Select destination** — same picker; if the current directory is selected, the last folder from src is auto-appended
 3. **Confirm** — sync runs asynchronously via rc API
-4. Progress is shown in the status bar
+4. Progress is shown in the status bar with per-job tracking
 
-### BiSync
+### Cancel Job
 
-Same as sync but performs bidirectional synchronization between two paths.
+1. Press the cancel keybinding (or select `3` from sync menu)
+2. **Select running job** from the list
+3. **Confirm** — job is stopped via rc API
 
 ## License
 

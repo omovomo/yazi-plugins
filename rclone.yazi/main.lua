@@ -172,6 +172,13 @@ local function format_eta(s)
 	else return string.format("%ds", math.floor(s)) end
 end
 
+local function make_bar(percent, width)
+	width = width or 10
+	local pct = math.max(0, math.min(100, percent or 0))
+	local filled = math.floor(pct / 100 * width + 0.5)
+	return string.rep("█", filled) .. string.rep("░", width - filled)
+end
+
 local current_cwd = ya.sync(function()
 	return tostring(cx.active.current.cwd):gsub("\\", "/"):gsub("/+$", "")
 end)
@@ -196,27 +203,52 @@ local get_hovered = ya.sync(function()
 	return url
 end)
 
-local set_progress = ya.sync(function(state, info)
-	state.progress_info = info
+local set_progress = ya.sync(function(state, jobid, info)
+	if not state.progress_jobs then state.progress_jobs = {} end
+	if info then
+		state.progress_jobs[jobid] = info
+	else
+		state.progress_jobs[jobid] = nil
+	end
 	ui.render()
 end)
 
 local get_progress = ya.sync(function(state)
-	if not state.progress_info then return "" end
-	local p = state.progress_info
-	return ui.Line {
-		ui.Span(" 󰑌 "):fg("lightcyan"),
-		ui.Span(p.speed or ""):fg("lightgreen"),
-		ui.Span(":"),
-		ui.Span(p.percent or "?"):fg("lightgreen"),
-		ui.Span("%:"),
-		ui.Span(p.eta or "?"):fg("lightgreen"),
-		ui.Span(" "),
-	}
+	if not state.progress_jobs then return "" end
+	local count = 0
+	for _ in pairs(state.progress_jobs) do count = count + 1 end
+	if count == 0 then return "" end
+
+	local spans = { ui.Span(" 󰑌 "):fg("lightcyan") }
+	local first = true
+	for _, p in pairs(state.progress_jobs) do
+		if not first then
+			spans[#spans + 1] = ui.Span(" │ "):fg("darkgray")
+		end
+		first = false
+		local pct = tonumber(p.percent) or 0
+		local bar_w = count == 1 and 10 or count == 2 and 6 or 4
+		spans[#spans + 1] = ui.Span(make_bar(pct, bar_w)):fg("lightgreen")
+		if count == 1 then
+			spans[#spans + 1] = ui.Span(string.format(" %d%%", pct)):fg("lightgreen")
+			spans[#spans + 1] = ui.Span(" ")
+			spans[#spans + 1] = ui.Span(p.speed or ""):fg("yellow")
+			spans[#spans + 1] = ui.Span(" ")
+		elseif count == 2 then
+			spans[#spans + 1] = ui.Span(" ")
+			spans[#spans + 1] = ui.Span(p.speed or ""):fg("yellow")
+			spans[#spans + 1] = ui.Span(" ")
+		else
+			spans[#spans + 1] = ui.Span(" ")
+		end
+		spans[#spans + 1] = ui.Span(p.eta or "?"):fg("lightcyan")
+	end
+	spans[#spans + 1] = ui.Span(" ")
+	return ui.Line(spans)
 end)
 
 function M.setup(state, opts)
-	state.progress_info = nil
+	state.progress_jobs = {}
 	opts = opts or {}
 	state.url = opts.url or "http://localhost:5572/"
 	local cm = opts.cache_mode or "full"
@@ -453,24 +485,66 @@ local function do_status()
 	ya.notify({ title = "Rclone Mounts", content = table.concat(lines, "\n"), timeout = 10, level = "info" })
 end
 
+local mark_cancelled = ya.sync(function(state, jobid)
+	if not state.cancelled_jobs then state.cancelled_jobs = {} end
+	state.cancelled_jobs[jobid] = true
+end)
+
+local pop_cancelled = ya.sync(function(state, jobid)
+	if not state.cancelled_jobs then return false end
+	local v = state.cancelled_jobs[jobid]
+	state.cancelled_jobs[jobid] = nil
+	return v or false
+end)
+
+local function pick_path(label, cwd_suffix)
+	local cwd = current_cwd()
+
+	local result = rc_call("config/listremotes")
+	local remotes = (result and result.remotes) or {}
+
+	local cands = {}
+	local paths = {}
+	for i, r in ipairs(remotes) do
+		if i > #CAND_KEYS - 1 then break end
+		local name = r:gsub(":$", "")
+		cands[#cands + 1] = { on = CAND_KEYS:sub(i, i), desc = name }
+		paths[#paths + 1] = r:match(":$") and r or r .. ":"
+	end
+
+	local cwd_default = cwd_suffix and (cwd .. "/" .. cwd_suffix) or cwd
+	cands[#cands + 1] = { on = "<Enter>", desc = cwd }
+	paths[#paths + 1] = cwd_default
+
+	local idx = ya.which({ cands = cands })
+	if not idx then return nil end
+
+	local default = paths[idx]
+	local input, event = ya.input({
+		title = label .. ":",
+		value = default,
+		pos = { "center", w = 80 },
+	})
+	if event ~= 1 then return nil end
+	return input
+end
+
 local function do_sync(bisync)
 	local title = bisync and "BiSync" or "Sync"
 	local src_label = bisync and "path1" or "srcFs"
 	local dst_label = bisync and "path2" or "dstFs"
 
-	local cwd = current_cwd()
-	local src, se = ya.input({
-		title = title .. " - " .. src_label .. ":",
-		value = cwd,
-		pos = { "center", w = 80 },
-	})
-	if se ~= 1 then return end
+	local src = pick_path(title .. " - " .. src_label)
+	if not src then return end
 
-	local dst, de = ya.input({
-		title = title .. " - " .. dst_label .. ":",
-		pos = { "center", w = 80 },
-	})
-	if de ~= 1 then return end
+	local _, src_path = src:match("^(.-):(.+)$")
+	if src_path and src_path:sub(1, 1) ~= "/" and src_path:sub(1, 1) ~= "\\" then
+	else
+		src_path = src
+	end
+	local src_folder = (src_path or src):match("([^/\\]+)/?$") or ""
+	local dst = pick_path(title .. " - " .. dst_label, src_folder)
+	if not dst then return end
 
 	local cmd = bisync and "sync/bisync" or "sync/sync"
 	local params = {}
@@ -499,13 +573,19 @@ local function do_sync(bisync)
 	local jobid = result.jobid
 	if not jobid then return fail("No jobid returned") end
 
+	local short_src = src:match("([^/]+)[/]?$") or src
+	local short_dst = dst:match("([^/]+)[/]?$") or dst
+	local job_name = title .. ": " .. short_src .. " → " .. short_dst
+
 	while true do
+		ya.sleep(1)
+
 		local status = rc_call("job/status", { jobid = jobid })
 		if not status or status.finished then break end
 
 		local stats = rc_call("core/stats", { group = "job/" .. jobid })
 		if stats then
-			local progress = {}
+			local progress = { name = job_name }
 			if stats.speed and stats.speed > 0 then
 				progress.speed = format_bytes(stats.speed) .. "/s"
 			end
@@ -515,11 +595,16 @@ local function do_sync(bisync)
 			if stats.eta and stats.eta > 0 then
 				progress.eta = format_eta(stats.eta)
 			end
-			set_progress(progress)
+			set_progress(jobid, progress)
 		end
 	end
 
-	set_progress(nil)
+	set_progress(jobid, nil)
+
+	if pop_cancelled(jobid) then
+		ya.notify({ title = "Rclone " .. title, content = job_name .. " cancelled", timeout = 3, level = "warn" })
+		return
+	end
 
 	local final = rc_call("job/status", { jobid = jobid })
 	if final and final.success then
@@ -528,6 +613,43 @@ local function do_sync(bisync)
 		local msg = (final and final.error) or "Unknown error"
 		fail("%s failed: %s", title, msg)
 	end
+end
+
+local get_active_jobs = ya.sync(function(state)
+	if not state.progress_jobs then return {} end
+	local jobs = {}
+	for jobid, p in pairs(state.progress_jobs) do
+		jobs[#jobs + 1] = { id = jobid, desc = (p.name or "job") .. " (id:" .. jobid .. ")" }
+	end
+	return jobs
+end)
+
+local function do_cancel()
+	local jobs = get_active_jobs()
+	if #jobs == 0 then
+		ya.notify({ title = "Rclone", content = "No running jobs", timeout = 3, level = "info" })
+		return
+	end
+
+	local descs = {}
+	for _, j in ipairs(jobs) do descs[#descs + 1] = j.desc end
+
+	local cands = make_cands(descs)
+	local idx = ya.which({ cands = cands })
+	if not idx then return end
+
+	local ok = ya.confirm({
+		pos = { "center", w = 60, h = 5 },
+		title = ui.Line("Cancel Job"):bold(),
+		body = ui.Text({ ui.Line("Stop " .. descs[idx] .. "?"):fg("yellow") }),
+	})
+	if not ok then return end
+
+	mark_cancelled(jobs[idx].id)
+	local _, err = rc_call("job/stop", { jobid = jobs[idx].id })
+	if err then return fail("Cancel failed: %s", err) end
+	set_progress(jobs[idx].id, nil)
+	ya.notify({ title = "Rclone", content = descs[idx] .. " stopped", timeout = 3, level = "warn" })
 end
 
 function M.entry(st, job)
@@ -551,11 +673,13 @@ function M.entry(st, job)
 		local cands = {
 			{ on = "1", desc = "Sync" },
 			{ on = "2", desc = "BiSync" },
+			{ on = "3", desc = "Cancel job" },
 		}
 		local idx = ya.which({ cands = cands })
 		if not idx then return end
 		if idx == 1 then return do_sync(false)
-		elseif idx == 2 then return do_sync(true) end
+		elseif idx == 2 then return do_sync(true)
+		elseif idx == 3 then return do_cancel() end
 	elseif act == "mount" then
 		return do_mount()
 	elseif act == "unmount" then
@@ -568,6 +692,8 @@ function M.entry(st, job)
 		return do_sync(false)
 	elseif act == "bisync" then
 		return do_sync(true)
+	elseif act == "cancel" then
+		return do_cancel()
 	elseif act == "quit" then
 		if get_unmount_on_exit() then rc_call("mount/unmountall") end
 		ya.emit("quit", {})

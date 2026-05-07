@@ -268,7 +268,7 @@ local function rc_call(cmd, params)
 			c = c:arg(k .. "=" .. tostring(params[k]))
 		end
 	end
-	ya.dbg("rclone rc", "--url", url, cmd)
+	-- ya.dbg("rclone rc", "--url", url, cmd)
 	local child, err = c:stdout(Command.PIPED):stderr(Command.PIPED):spawn()
 	if not child then return nil, "spawn: " .. (err or "") end
 
